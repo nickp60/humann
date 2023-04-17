@@ -43,10 +43,10 @@ def find_index(directory):
     Search through the directory for the name of the bowtie2 index files
     Or if a file name is provided check it is a bowtie2 index
     """
-    
+
     index=""
     bowtie2_extensions=config.bowtie2_index_ext_list+[config.bowtie2_large_index_ext]
-    
+
     if not os.path.isdir(directory):
         # check if this is the bowtie2 index file
         if os.path.isfile(directory):
@@ -71,44 +71,48 @@ def find_index(directory):
                     break
             if index:
                 break
-    
+
     if not index:
         sys.exit("CRITICAL ERROR: Unable to find bowtie2 index files in directory: " + directory)
-    
+
     return index
-            
+
 
 def index(custom_database):
     """
     Index database and run alignment with bowtie2
     """
     # name the index
-    index_name = utilities.name_temp_file( 
+    index_name = utilities.name_temp_file(
         config.bowtie2_index_name)
-  
+
     exe="bowtie2-build"
     opts=config.bowtie2_build_opts
 
     args=["-f",custom_database,index_name]
 
-    outfiles=[index_name + ext for ext in config.bowtie2_index_ext_list] 
+    outfiles=[index_name + ext for ext in config.bowtie2_index_ext_list]
 
     # if custom_database is large (>4G) then use the --large-index flag
     if os.path.getsize(custom_database) > config.bowtie2_large_index_threshold:
         args+=["--large-index"]
         outfiles=[index_name + config.bowtie2_large_index_ext]
-        
+
     # index the database
     message="Running " + exe + " ........"
     logger.info(message)
     print("\n"+message+"\n")
 
     args+=opts
-    
+
+    #add threads
+    if config.threads > 1:
+        args+=["--threads",config.threads]
+
     # create temp file for stdout and stderr
     tmpfile=utilities.unnamed_temp_file("bowtie2_stdout_")
     tmpfile2=utilities.unnamed_temp_file("bowtie2_stderr_")
-    
+
     utilities.execute_command(exe,args,[custom_database],outfiles,
         stdout_file=tmpfile, stderr_file=tmpfile2)
 
@@ -118,7 +122,7 @@ def alignment(user_fastq, index_name):
     """
     Run alignment with bowtie2
     """
-    
+
     # name the alignment file
     alignment_file = utilities.name_temp_file(
         config.chocophlan_alignment_name)
@@ -139,7 +143,7 @@ def alignment(user_fastq, index_name):
         input_type_flag="-f"
 
     args=[input_type_flag,"-x",index_name,"-U",user_fastq,"-S",alignment_file]
-    
+
     #add threads
     if config.threads > 1:
         args+=["-p",config.threads]
@@ -147,7 +151,7 @@ def alignment(user_fastq, index_name):
     # run the bowtie2 alignment
     message="Running " + exe + " ........"
     print("\n"+message+"\n")
-    
+
     args+=opts
 
     utilities.execute_command(exe,args,[user_fastq],[alignment_file])
@@ -159,10 +163,10 @@ def calculate_percent_identity(cigar_string, md_field):
     Calculate the percent identity using the cigar string and md field from the sam file
     Returns the percent identity and the alignment length
     """
-    
+
     match_numbers=re.compile("\d+")
     match_non_numbers=re.compile("\D+")
-    
+
     # find the sets of numbers and identifers from the cigar string
     cigar_numbers=match_numbers.findall(cigar_string)
     cigar_identifiers=match_non_numbers.findall(cigar_string)
@@ -175,7 +179,7 @@ def calculate_percent_identity(cigar_string, md_field):
             match_mismatch_indel_index.append(index)
         if cigar_identifier in config.sam_cigar_add_to_reference_identifiers:
             reference_length_index.append(index)
-    
+
     # get reference length
     try:
         reference_length = int(sum([float(cigar_numbers[index]) for index in reference_length_index]))
@@ -187,42 +191,42 @@ def calculate_percent_identity(cigar_string, md_field):
         match_mismatch_indel_count=sum([float(cigar_numbers[index]) for index in match_mismatch_indel_index])
     except (IndexError, ValueError):
         match_mismatch_indel_count=0.0
-    
+
     # remove the tag from the md field
     md_field=md_field.split(config.sam_md_field_identifier)[-1]
-    
+
     # find the sets of numbers from the md field
     md_field_numbers=match_numbers.findall(md_field)
-    
+
     # sum the md field numbers to get the total number of matches
     try:
         matches=sum(int(n) for n in md_field_numbers)
     except ValueError:
         matches=0.0
-    
+
     percent_identity=0.0
     if match_mismatch_indel_count > 0.0:
         percent_identity = 100.0 * ( matches / ( match_mismatch_indel_count * 1.0 ) )
-        
-    return percent_identity, match_mismatch_indel_count, reference_length 
-    
+
+    return percent_identity, match_mismatch_indel_count, reference_length
+
 def find_md_field(info):
     """
     Using the array of data from an alignment line, find the md field
     """
-    
+
     # Search the data, starting with the first optional column to find the md field
     md_field=""
     for data in info[config.sam_start_optional_index:]:
         if re.match(config.sam_md_field_identifier,data):
             md_field=data
             break
-        
+
     return md_field
 
 def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_sam=None):
-    """ 
-    Return file and data structure of the unaligned reads 
+    """
+    Return file and data structure of the unaligned reads
     Store the alignments and return
     """
 
@@ -230,13 +234,13 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
     #even if original reads file is fastq
     unaligned_reads_file_fasta= utilities.name_temp_file(
         config.nucleotide_unaligned_reads_name_no_ext + config.fasta_extension)
-    
+
     # if set to run frame picker, create named temp file
     write_picked_frames=False
     if config.pick_frames_toggle == "on":
         logger.debug("Creating picked frames file")
-        unaligned_reads_file_picked_frames_fasta = utilities.name_temp_file( 
-            config.nucleotide_unaligned_reads_picked_frames_name_no_ext + 
+        unaligned_reads_file_picked_frames_fasta = utilities.name_temp_file(
+            config.nucleotide_unaligned_reads_picked_frames_name_no_ext +
             config.fasta_extension)
         file_handle_write_unaligned_frames=open(unaligned_reads_file_picked_frames_fasta, "w")
         write_picked_frames=True
@@ -245,17 +249,17 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
     reduced_aligned_reads_file=utilities.name_temp_file(
         config.nucleotide_aligned_reads_name_tsv)
 
-  
+
     utilities.file_exists_readable(sam_alignment_file)
     file_handle_read=open(sam_alignment_file, "rt")
-    
+
     file_handle_write_aligned=open(reduced_aligned_reads_file, "w")
 
     # read through the file line by line
     # generate blast-like output file of alignments
     line = file_handle_read.readline()
     while line:
-        # ignore headers ^@ 
+        # ignore headers ^@
         unaligned_read=False
         if not re.search("^@",line):
             info=line.split(config.sam_delimiter)
@@ -267,7 +271,7 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
                 cigar_string=info[config.sam_cigar_index]
                 md_field=find_md_field(info)
                 identity, alignment_length, reference_length=calculate_percent_identity(cigar_string, md_field)
-                
+
                 query=info[config.sam_read_name_index]
                 # write output to be blastm8-like
                 new_info=[""] * config.blast_total_columns
@@ -282,7 +286,7 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
                 new_info[config.blast_query_end_index]=str(alignment_length-1)
                 file_handle_write_aligned.write(config.blast_delimiter.join(new_info)+"\n")
         line=file_handle_read.readline()
-                   
+
     file_handle_read.close()
     file_handle_write_aligned.close()
 
@@ -304,7 +308,7 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
     filtered_genes_count=0
     query_coverage_count=0
     while line:
-        # ignore headers ^@ 
+        # ignore headers ^@
         unaligned_read=False
         if not re.search("^@",line):
             info=line.split(config.sam_delimiter)
@@ -349,7 +353,7 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
                                                                     len(info[config.sam_read_index]))
                 file_handle_write_unaligned.write(">"+annotated_sam_read_name+"\n")
                 file_handle_write_unaligned.write(info[config.sam_read_index]+"\n")
-                
+
                 # find the frames for the sequence and write to file
                 if write_picked_frames:
                     picked_frames=pick_frames.pick_frames(info[config.sam_read_index])
@@ -359,11 +363,11 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
                         file_handle_write_unaligned_frames.write(">"+
                             annotated_sam_read_name+"\n")
                         file_handle_write_unaligned_frames.write(frame+"\n")
-                
+
                 # store the unaligned reads data
-                unaligned_reads_store.add(info[config.sam_read_name_index], 
+                unaligned_reads_store.add(info[config.sam_read_name_index],
                     info[config.sam_read_index])
-                    
+
         line=file_handle_read.readline()
 
     if write_picked_frames:
@@ -374,17 +378,17 @@ def unaligned_reads(sam_alignment_file, alignments, unaligned_reads_store, keep_
         str(small_identity_count))
     logger.debug("Total nucleotide alignments not included based on query coverage threshold: " +
         str(query_coverage_count))
-    
+
     file_handle_read.close()
-    file_handle_write_unaligned.close()   
+    file_handle_write_unaligned.close()
     file_handle_write_aligned.close()
-    
+
     # set the total number of queries
     unaligned_reads_store.set_initial_read_count(len(query_ids))
-    
+
     # set the unaligned reads file to read sequences from
     unaligned_reads_store.set_file(unaligned_reads_file_fasta)
-    
+
     if write_picked_frames:
         file_handle_write_unaligned_frames.close()
 
